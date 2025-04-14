@@ -1,0 +1,353 @@
+app.py
+
+from flask import Flask, request, render_template, jsonify
+from googleapiclient.discovery import build
+from textblob import TextBlob
+import os
+from dotenv import load_dotenv
+
+app = Flask(__name__)
+
+# Load API key from environment variables
+load_dotenv()
+API_KEY = os.getenv("API_KEY")
+
+# Placeholder for storing results
+analysis_results = {}
+
+
+def fetch_comments(video_id):
+    youtube = build("youtube", "v3", developerKey=API_KEY)
+    request = youtube.commentThreads().list(
+        part="snippet", videoId=video_id, maxResults=100
+    )
+    response = request.execute()
+    comments = [
+        item["snippet"]["topLevelComment"]["snippet"]["textOriginal"]
+        for item in response.get("items", [])
+    ]
+    return comments
+
+
+def analyze_comments(comments):
+    sentiments = {"positive": 0, "neutral": 0, "negative": 0}
+    detailed_analysis = []
+
+    for comment in comments:
+        analysis = TextBlob(comment)
+        polarity = analysis.polarity
+
+        if polarity > 0.1:
+            sentiments["positive"] += 1
+        elif polarity < -0.1:
+            sentiments["negative"] += 1
+        else:
+            sentiments["neutral"] += 1
+
+        detailed_analysis.append(
+            {
+                "comment": comment,
+                "polarity": polarity,
+                "subjectivity": analysis.subjectivity,
+            }
+        )
+
+    total_comments = len(comments)
+    for sentiment in sentiments:
+        sentiments[sentiment] = round((sentiments[sentiment] / total_comments) * 100, 2)
+
+    overall_sentiment = max(sentiments, key=sentiments.get)
+    return sentiments, overall_sentiment
+
+
+@app.route("/")
+def home():
+    return render_template("index.html")
+
+
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    global analysis_results
+
+    video_id = request.form.get("video_id")
+
+    try:
+        comments = fetch_comments(video_id)
+        sentiments, overall_sentiment = analyze_comments(comments)
+
+        analysis_results = {
+            "positive": sentiments["positive"],
+            "neutral": sentiments["neutral"],
+            "negative": sentiments["negative"],
+            "overall": overall_sentiment,
+        }
+
+        return render_template("index.html")
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/results", methods=["GET"])
+def results():
+    return jsonify(analysis_results)
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+sentimental_analysis.py
+
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from textblob import TextBlob
+from multiprocessing import Pool
+
+# Download NLTK resources
+nltk.download("punkt")
+nltk.download("stopwords")
+nltk.download("wordnet")
+
+
+# Preprocessing function
+def preprocess(text):
+    stop_words = set(stopwords.words("english"))
+    negation_words = {"not", "no", "never"}
+    lemmatizer = WordNetLemmatizer()
+
+    tokens = word_tokenize(text.lower())
+    filtered_tokens = [
+        lemmatizer.lemmatize(word)
+        for word in tokens
+        if word.isalnum() and (word not in stop_words or word in negation_words)
+    ]
+    return " ".join(filtered_tokens)
+
+
+# Train the Naive Bayes model
+def train_model():
+    training_data = [
+        "I love this product!",
+        "This is the best experience.",
+        "I hate this video.",
+        "Worst purchase ever.",
+        "It's okay, nothing special.",
+        "Average content.",
+    ]
+    labels = ["positive", "positive", "negative", "negative", "neutral", "neutral"]
+
+    vectorizer = CountVectorizer()
+    X = vectorizer.fit_transform(training_data)
+    model = MultinomialNB()
+    model.fit(X, labels)
+
+    return model, vectorizer
+
+
+# TextBlob Sentiment Analysis
+def analyze_comments_with_textblob(comments):
+    sentiments = {"positive": 0, "neutral": 0, "negative": 0}
+    detailed_analysis = []
+
+    for comment in comments:
+        analysis = TextBlob(comment)
+        polarity = analysis.polarity
+        if polarity > 0.1:
+            sentiments["positive"] += 1
+        elif polarity < -0.1:
+            sentiments["negative"] += 1
+        else:
+            sentiments["neutral"] += 1
+
+        detailed_analysis.append(
+            {
+                "comment": comment,
+                "polarity": polarity,
+                "subjectivity": analysis.subjectivity,
+            }
+        )
+
+    total_comments = len(comments)
+    for sentiment in sentiments:
+        sentiments[sentiment] = round((sentiments[sentiment] / total_comments) * 100, 2)
+
+    overall_sentiment = max(sentiments, key=sentiments.get)
+    return sentiments, overall_sentiment, detailed_analysis
+
+
+# Naive Bayes Sentiment Analysis
+def analyze_comments_with_naive_bayes(comments, model, vectorizer):
+    sentiments = {"positive": 0, "neutral": 0, "negative": 0}
+    detailed_analysis = []
+
+    preprocessed_comments = [preprocess(comment) for comment in comments]
+    comment_vectors = vectorizer.transform(preprocessed_comments)
+    predictions = model.predict(comment_vectors)
+
+    for i, comment in enumerate(comments):
+        sentiment = predictions[i]
+        sentiments[sentiment] += 1
+        detailed_analysis.append(
+            {
+                "comment": comment,
+                "preprocessed_comment": preprocessed_comments[i],
+                "predicted_sentiment": sentiment,
+            }
+        )
+
+    total_comments = len(comments)
+    for sentiment in sentiments:
+        sentiments[sentiment] = round((sentiments[sentiment] / total_comments) * 100, 2)
+
+    overall_sentiment = max(sentiments, key=sentiments.get)
+    return sentiments, overall_sentiment, detailed_analysis
+
+
+# Batch Processing
+def analyze_comments_in_batches(comments, batch_size, analysis_function, *args):
+    all_sentiments = {"positive": 0, "neutral": 0, "negative": 0}
+    all_detailed_analysis = []
+
+    for i in range(0, len(comments), batch_size):
+        batch = comments[i : i + batch_size]
+        sentiments, _, detailed_analysis = analysis_function(batch, *args)
+
+        for sentiment in all_sentiments:
+            all_sentiments[sentiment] += sentiments[sentiment]
+
+        all_detailed_analysis.extend(detailed_analysis)
+
+    total_comments = len(comments)
+    for sentiment in all_sentiments:
+        all_sentiments[sentiment] = round(
+            (all_sentiments[sentiment] / total_comments), 2
+        )
+
+    overall_sentiment = max(all_sentiments, key=all_sentiments.get)
+    return all_sentiments, overall_sentiment, all_detailed_analysis
+
+
+# Parallel Processing
+def analyze_comments_in_parallel(comments, chunk_size, analysis_function, *args):
+    chunks = [comments[i : i + chunk_size] for i in range(0, len(comments), chunk_size)]
+
+    with Pool(processes=4) as pool:
+        results = pool.starmap(analysis_function, [(chunk, *args) for chunk in chunks])
+
+    all_sentiments = {"positive": 0, "neutral": 0, "negative": 0}
+    all_detailed_analysis = []
+
+    for sentiments, _, detailed_analysis in results:
+        for sentiment in all_sentiments:
+            all_sentiments[sentiment] += sentiments[sentiment]
+        all_detailed_analysis.extend(detailed_analysis)
+
+    total_comments = len(comments)
+    for sentiment in all_sentiments:
+        all_sentiments[sentiment] = round(
+            (all_sentiments[sentiment] / total_comments), 2
+        )
+
+    overall_sentiment = max(all_sentiments, key=all_sentiments.get)
+    return all_sentiments, overall_sentiment, all_detailed_analysis
+
+
+# Example Usage
+comments = [
+    "I love this video, it's amazing!",
+    "This video is terrible, such a waste of time.",
+    "Great content, will watch again!",
+    "Worst video ever, very boring.",
+    "It's okay, nothing special.",
+    "I don't think this is good.",
+    "Fantastic work, keep it up!",
+    "Horrible! I hated every second.",
+]
+
+# Train the Naive Bayes model
+model, vectorizer = train_model()
+
+# Batch Processing with TextBlob
+batch_size = 100
+sentiments_textblob, overall_sentiment_textblob, analysis_textblob = (
+    analyze_comments_in_batches(comments, batch_size, analyze_comments_with_textblob)
+)
+print(
+    f"TextBlob Batch Analysis: {sentiments_textblob}, Overall: {overall_sentiment_textblob}"
+)
+
+# Batch Processing with Naive Bayes
+sentiments_naive_bayes, overall_sentiment_naive_bayes, analysis_naive_bayes = (
+    analyze_comments_in_batches(
+        comments, batch_size, analyze_comments_with_naive_bayes, model, vectorizer
+    )
+)
+print(
+    f"Naive Bayes Batch Analysis: {sentiments_naive_bayes}, Overall: {overall_sentiment_naive_bayes}"
+)
+
+# Parallel Processing with Naive Bayes
+sentiments_parallel, overall_sentiment_parallel, analysis_parallel = (
+    analyze_comments_in_parallel(
+        comments, batch_size, analyze_comments_with_naive_bayes, model, vectorizer
+    )
+)
+print(
+    f"Parallel Naive Bayes Analysis: {sentiments_parallel}, Overall: {overall_sentiment_parallel}"
+)
+
+
+youtube_api.py
+
+from googleapiclient.discovery import build
+
+
+def fetch_comments(api_key, video_id):
+    youtube = build("youtube", "v3", developerKey=api_key)
+    request = youtube.commentThreads().list(
+        part="snippet", videoId=video_id, maxResults=100
+    )
+    response = request.execute()
+
+    comments = [
+        item["snippet"]["topLevelComment"]["snippet"]["textOriginal"]
+        for item in response["items"]
+    ]
+    return comments
+
+
+"""Here are three YouTube videos that have received significant negative feedback, representing different sentiment categories:
+
+Negative Sentiment:
+
+Video: "YouTube Rewind 2018: Everyone Controls Rewind"
+YouTube ID: YbJOTdZBX1g
+Link: YouTube Rewind 2018: Everyone Controls Rewind
+Description: This annual recap video faced widespread criticism for its content and execution, leading to it becoming one of the most disliked videos on YouTube. 
+WIKIPEDIA
+Neutral Sentiment:
+
+Video: "Negative YouTube Comments - some insights"
+YouTube ID: JlPiRwTtqCU
+Link: Negative YouTube Comments - some insights
+Description: This video offers personal insights into negative and unpleasant comments on YouTube, providing a balanced perspective on the issue.
+Positive Sentiment:
+
+Video: "How To Deal With Haters And Negative Comments On YouTube"
+YouTube ID: XSpOa7iwTqQ
+Link: How To Deal With Haters And Negative Comments On YouTube
+Description: This video provides strategies for handling negative comments on YouTube, aiming to empower creators to manage criticism constructively.
+These videos exemplify various reactions and discussions surrounding negative feedback on YouTube.
+
+
+"""
+
+
+.env
+
+
+API_KEY=AIzaSyA3DTXw6hALW-JnDmjFmJcXCIvJE5mFMNQ

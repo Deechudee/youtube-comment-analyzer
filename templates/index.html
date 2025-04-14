@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Sentiment Analysis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f7f7f7;
+            margin: 0;
+            padding: 0;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 30px;
+            color: #4CAF50;
+        }
+
+        .container {
+            width: 80%;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+        }
+
+        .form-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            width: 60%;
+            margin-right: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        button {
+            padding: 10px 15px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .error {
+            color: red;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .results-container {
+            margin-top: 30px;
+        }
+
+        .result-item {
+            background-color: #f9f9f9;
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-item h3 {
+            color: #333;
+        }
+
+        .result-item p {
+            margin: 5px 0;
+        }
+
+        .result-item .message {
+            font-style: italic;
+        }
+
+        .result-item a {
+            color: #4CAF50;
+            text-decoration: none;
+        }
+
+        .result-item a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>YouTube Sentiment Analysis</h1>
+
+    <!-- Form to input YouTube topic -->
+    <div class="container">
+        <div class="form-container">
+            <form action="/analyze" method="POST">
+                <input type="text" name="topic" placeholder="Enter a topic" required>
+                <button type="submit">Analyze</button>
+            </form>
+        </div>
+
+        <!-- Display error if any -->
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <!-- Display analysis results -->
+        {% if results %}
+            <div class="results-container">
+                {% for result in results %}
+                    <div class="result-item">
+                        <h3>
+                            <a href="https://www.youtube.com/watch?v={{ result.video.video_id }}" target="_blank">
+                                {{ result.video.title }}
+                            </a>
+                        </h3>
+                        <p><strong>Positive:</strong> {{ result.sentiments['positive'] }}%</p>
+                        <p><strong>Neutral:</strong> {{ result.sentiments['neutral'] }}%</p>
+                        <p><strong>Negative:</strong> {{ result.sentiments['negative'] }}%</p>
+                        <p><strong>Overall Sentiment:</strong> {{ result.overall }}</p>
+                        <p class="message"><strong>Message:</strong> {{ result.message }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+
+</body>
+</html>
